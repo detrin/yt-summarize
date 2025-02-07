@@ -4,26 +4,54 @@ import subprocess
 import os
 import shutil
 import gradio as gr
+import uuid
+import subprocess
 
-def download_subtitles(url):
+def download_subtitles(video_url):
     # Execute the bash script and capture the output
-    result = subprocess.run(
-        ['bash', 'download_subtitles.sh', url],
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
-    )
+    # result = subprocess.run(
+    #     ['bash', 'download_subtitles.sh', url],
+    #     check=True,
+    #     text=True,
+    #     stdout=subprocess.PIPE,
+    #     stderr=subprocess.PIPE
+    # )
     
-    # Extract the last line from stdout which is the directory name
-    stdout_lines = result.stdout.strip().split('\n')
-    directory = stdout_lines[-1].strip()
-    
+    # # Extract the last line from stdout which is the directory name
+    # stdout_lines = result.stdout.strip().split('\n')
+    # directory = stdout_lines[-1].strip()
+
+    uuid_dir = str(uuid.uuid4())
+
+    # First command for auto-generated subtitles
+    subprocess.run([
+        "yt-dlp",
+        "--write-auto-subs",
+        "--sub-lang", "en",
+        "--convert-subs", "srt",
+        "--skip-download",
+        "-P", f"home:{uuid_dir}",
+        video_url
+    ], check=True)
+
+    # Second command for regular subtitles
+    subprocess.run([
+        "yt-dlp",
+        "--write-subs",
+        "--sub-lang", "en",
+        "--convert-subs", "srt",
+        "--skip-download",
+        "-P", f"home:{uuid_dir}",
+        video_url
+    ], check=True)
+
+    directory = uuid_dir
     # Verify the directory exists
     if not os.path.isdir(directory):
         raise FileNotFoundError(f"Directory {directory} does not exist")
     
     # Find the .srt file in the directory
+    print( os.listdir(directory))
     srt_files = [f for f in os.listdir(directory) if f.endswith('.srt')]
     if not srt_files:
         raise FileNotFoundError(f"No .srt file found in {directory}")
@@ -80,16 +108,13 @@ def srt_to_text(input_file):
 # print(response.text)
 
 def get_transcript_text(url):
-    try:
-        print("Downloading subtitles...")
-        subtitlesfile = download_subtitles(url)
-        print("Extracting text from subtitles...")
-        video_text = srt_to_text(subtitlesfile)
-        print("Cleaning up...")
-        cleanup_directory(os.path.dirname(subtitlesfile))
-        return video_text
-    except Exception as e:
-        raise gr.Error(f"Error retrieving transcript: {e}")
+    print("Downloading subtitles...")
+    subtitlesfile = download_subtitles(url)
+    print("Extracting text from subtitles...")
+    video_text = srt_to_text(subtitlesfile)
+    print("Cleaning up...")
+    cleanup_directory(os.path.dirname(subtitlesfile))
+    return video_text
 
 def summarize_video(url, prompt):
     try:
@@ -97,6 +122,7 @@ def summarize_video(url, prompt):
         
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         final_prompt = prompt + "\n" + video_text
+        print("Generating summary...")
         response = client.models.generate_content(
             model='gemini-2.0-flash',
             contents=final_prompt,
@@ -113,7 +139,7 @@ with gr.Blocks() as app:
     with gr.Row():
         with gr.Column(scale=5):
             url_input = gr.Textbox(label="YouTube URL", placeholder="Enter YouTube URL here...")
-        with gr.Column(scale=5):
+        with gr.Column(scale=1):
             summarize_btn = gr.Button("Summarize", variant="primary")
     
     default_prompt = """Summarize the following text chronologically, make it long, use markdown:"""
